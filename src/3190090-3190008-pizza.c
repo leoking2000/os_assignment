@@ -6,6 +6,7 @@ static unsigned int SEED;
 int GetRandomNumber(int min, int max);
 
 ResourceInfo* SetUpResources();
+void DestroyResources(ResourceInfo* r);
 
 #define TELE 0
 #define COOK 1
@@ -26,20 +27,21 @@ void* TakeOrder(void* data)
     int pizzas = GetRandomNumber(N_oderlow, N_orderhigh);
     pthread_mutex_lock(&arg->Resources[OVEN].muxtex);
 
-    while(!Take(&arg->Resources[OVEN], pizzas))
+    while(arg->Resources[OVEN].size < pizzas)
     {
         printf("Thread %i] is waiting\n", id);
         pthread_cond_wait(&arg->Resources[OVEN].cond, &arg->Resources[OVEN].muxtex);
     }
+    arg->Resources[OVEN].size -= pizzas;
 
     pthread_mutex_unlock(&arg->Resources[OVEN].muxtex);
 
-    printf("[Thread %i] %i pizzas are in the oven\n", id, pizzas);
+    printf("[Thread %i] %i pizzas are in the oven, <%i> ovens left \n", id, pizzas, arg->Resources[OVEN].size);
     sleep(pizzas);
 
     pthread_mutex_lock(&arg->Resources[OVEN].muxtex);
 
-    Give(&arg->Resources[OVEN], pizzas);
+    arg->Resources[OVEN].size += pizzas;
     pthread_cond_signal(&arg->Resources[OVEN].cond);
 
     pthread_mutex_unlock(&arg->Resources[OVEN].muxtex);
@@ -104,6 +106,8 @@ int main(int argc, char** argv)
         }
     }
 
+    DestroyResources(Resources);
+
     free(Resources);
     free(args);
     free(arr);
@@ -128,6 +132,8 @@ ResourceInfo* SetUpResources()
 
     arr[OVEN]._MaxSize = N_oven;
     arr[OVEN].size = N_oven;
+    pthread_mutex_init(&arr[OVEN].muxtex, NULL);
+    pthread_cond_init(&arr[OVEN].cond, NULL);
 
     arr[DELIVERY]._MaxSize = N_oven;
     arr[DELIVERY].size = N_oven;
@@ -135,9 +141,15 @@ ResourceInfo* SetUpResources()
     return arr;
 }
 
+void DestroyResources(ResourceInfo* r)
+{
+    pthread_mutex_destroy(&r[OVEN].muxtex);
+    pthread_cond_destroy(&r[OVEN].cond);
+}
+
 bool Take(ResourceInfo* r, unsigned int amount)
 {
-    if(r->size - amount <= 0)
+    if(r->size - amount < 0)
     {
         return FALSE;
     }
