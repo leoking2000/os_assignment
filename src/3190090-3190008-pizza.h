@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 
 #define ThreadID pthread_t
 
@@ -39,14 +40,8 @@ typedef struct ResourceInfo
     pthread_cond_t cond;
 } ResourceInfo;
 
-typedef struct Args
-{
-    ResourceInfo* Resources;
-    int id;
-} Args;
-
-
 #define bool unsigned char
 #define TRUE 1
 #define FALSE 0
 
+#define BILLION  1000000000L;
