@@ -7,7 +7,7 @@ void DestroyResources(ResourceInfo* r);
 
 void* TakeOrder(void* data);
 
-int HandleOrderStage(int id, int resource_used_index, int amount, int workTime);
+int HandleOrderStage(int id, int resource_used_index, int amount, int workTime, const void* data);
 
 #define TELE 0
 #define COOK 1
@@ -22,6 +22,9 @@ static unsigned int SEED;
 static ResourceInfo* Resources;
 
 static pthread_mutex_t screen;
+
+static unsigned int rev = 0;
+static pthread_mutex_t rev_mutex;
 
 int main(int argc, char** argv)
 {
@@ -47,6 +50,7 @@ int main(int argc, char** argv)
     }
 
     Resources = SetUpResources();
+    pthread_mutex_init(&rev_mutex, NULL);
 
     int* ids = (int*)malloc(N_cust * sizeof(int));
 
@@ -77,7 +81,10 @@ int main(int argc, char** argv)
         }
     }
 
+    printf("Total Revenue: %i \n", rev);
+
     DestroyResources(Resources);
+    pthread_mutex_destroy(&rev_mutex);
 
     free(ids);
     free(arr);
@@ -90,18 +97,18 @@ void* TakeOrder(void* data)
     int id = *( (int*)data );
     int pizzas = GetRandomNumber(N_oderlow, N_orderhigh);
 
-    HandleOrderStage(id, TELE, 1, GetRandomNumber(T_paymentlow, T_paymenthigh));
+    HandleOrderStage(id, TELE, 1, GetRandomNumber(T_paymentlow, T_paymenthigh), &pizzas);
 
-    HandleOrderStage(id, COOK, 1, T_prep * pizzas);
+    HandleOrderStage(id, COOK, 1, T_prep * pizzas, &pizzas);
 
-    HandleOrderStage(id, OVEN, pizzas, T_bake + T_pack * pizzas);
+    HandleOrderStage(id, OVEN, pizzas, T_bake + T_pack * pizzas, NULL);
 
-    HandleOrderStage(id, DELIVERY, 1, GetRandomNumber(T_dellow, T_delhigh));
+    HandleOrderStage(id, DELIVERY, 1, GetRandomNumber(T_dellow, T_delhigh), NULL);
 
     pthread_exit(NULL);
 }
 
-int HandleOrderStage(int id, int resource_used_index, int amount, int workTime)
+int HandleOrderStage(int id, int resource_used_index, int amount, int workTime, const void* data)
 {
     struct timespec startTime, endTime;
     double time;
@@ -163,6 +170,25 @@ int HandleOrderStage(int id, int resource_used_index, int amount, int workTime)
 
     print(woriking, id, amount, Resources[resource_used_index].size);
     sleep(workTime);
+
+    if(resource_used_index == TELE)
+    {
+        if(GetRandomNumber(1, 100) <= P_fail)
+        {
+            print("[THREAD %i] Has Failed payment!\n", id);
+        }
+        else
+        {
+            pthread_mutex_lock(&rev_mutex);
+            int p = *(int*)data;
+            rev += C_pizza * p;
+            pthread_mutex_unlock(&rev_mutex);
+        }
+    }
+    else if(resource_used_index == COOK)
+    {
+        
+    }
 
     pthread_mutex_lock(&Resources[resource_used_index].muxtex);
 
