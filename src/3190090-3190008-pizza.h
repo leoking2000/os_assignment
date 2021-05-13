@@ -31,6 +31,8 @@
 #define T_dellow 5
 #define T_delhigh 15
 
+#define BILLION  1000000000L;
+
 typedef struct ResourceInfo
 {
     unsigned int size;
@@ -40,8 +42,3 @@ typedef struct ResourceInfo
     pthread_cond_t cond;
 } ResourceInfo;
 
-#define bool unsigned char
-#define TRUE 1
-#define FALSE 0
-
-#define BILLION  1000000000L;

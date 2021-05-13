@@ -1,14 +1,5 @@
 #include "3190090-3190008-pizza.h"
 
-int GetRandomNumber(int min, int max);
-
-ResourceInfo* SetUpResources();
-void DestroyResources(ResourceInfo* r);
-
-void* TakeOrder(void* data);
-
-int HandleOrderStage(int id, int resource_used_index, int amount, int workTime, const void* data);
-
 #define TELE 0
 #define COOK 1
 #define OVEN 2
@@ -16,15 +7,59 @@ int HandleOrderStage(int id, int resource_used_index, int amount, int workTime, 
 
 #define print(arg...) pthread_mutex_lock(&screen); printf(arg); pthread_mutex_unlock(&screen);
 
+typedef struct timespec timespec;
+
+typedef enum State
+{
+    START,
+    WAITING,
+    WORKING,
+    END
+} State;
+
+int GetRandomNumber(int min, int max);
+
+ResourceInfo* SetUpResources();
+void DestroyResources(ResourceInfo* r);
+
+void* TakeOrder(void* data);
+
+void LockResource(int id, int resource_used_index, int amount);
+void UnLockResource(int id, int resource_used_index, int amount);
+
+void PrintMsg(int id, int resource_used_index, State state);
+
+timespec Now();
+double TimePassedSince(timespec past);
+
+double Max(double* arr, int len, double* is_ok);
+double Avg(double* arr, int len, double* is_ok);
+
+double* CreateArray(int len, double value);
+void DestroyArray(double* arr);
+
+
+// if debug = 0 printmsg does not print debug info 
+static char debug = 0; 
+
 static unsigned int N_cust;
 static unsigned int SEED;
 
-static ResourceInfo* Resources;
+static ResourceInfo* Resources; // the Resource array
 
 static pthread_mutex_t screen;
+static pthread_mutex_t Pack_person;
 
 static unsigned int rev = 0;
 static pthread_mutex_t rev_mutex;
+
+static unsigned int failed = 0;
+static pthread_mutex_t failed_mutex;
+
+static double* Tele_wait;
+static double* Order_wait;
+static double* cool_wait;
+static double* is_Failed;
 
 int main(int argc, char** argv)
 {
@@ -53,8 +88,12 @@ int main(int argc, char** argv)
     pthread_mutex_init(&rev_mutex, NULL);
 
     int* ids = (int*)malloc(N_cust * sizeof(int));
-
     ThreadID* arr = (ThreadID*)malloc(N_cust * sizeof(ThreadID));
+
+    Tele_wait = CreateArray(N_cust, 0.0);
+    Order_wait = CreateArray(N_cust, 0.0);
+    cool_wait = CreateArray(N_cust, 0.0);
+    is_Failed = CreateArray(N_cust, 1.0);
 
     for(int i = 0; i < N_cust; i++)
     {
@@ -81,10 +120,22 @@ int main(int argc, char** argv)
         }
     }
 
+    printf("\n========================================\n");
     printf("Total Revenue: %i \n", rev);
+    printf("Succesfull Orders: %i\n", N_cust - failed);
+    printf("Failed Orders: %i\n", failed);
+    printf("TELE WAIT: MAX = %lf | AVG = %lf", Max(Tele_wait, N_cust, NULL), Avg(Tele_wait, N_cust, NULL));
+    printf("Order WAIT: MAX = %lf | AVG = %lf", Max(Order_wait, N_cust, is_Failed), Avg(Tele_wait, N_cust, is_Failed));
+    printf("Cool WAIT: MAX = %lf | AVG = %lf", Max(cool_wait, N_cust, is_Failed), Avg(cool_wait, N_cust, is_Failed));
+
 
     DestroyResources(Resources);
     pthread_mutex_destroy(&rev_mutex);
+
+    DestroyArray(Tele_wait);
+    DestroyArray(Order_wait);
+    DestroyArray(cool_wait);
+    DestroyArray(is_Failed);
 
     free(ids);
     free(arr);
@@ -95,121 +146,100 @@ int main(int argc, char** argv)
 void* TakeOrder(void* data)
 {
     int id = *( (int*)data );
+
+    timespec start = Now();
+ 
+    LockResource(id, TELE, 1);
+
+    Tele_wait[id - 1] = TimePassedSince(start);
     int pizzas = GetRandomNumber(N_oderlow, N_orderhigh);
+    PrintMsg(id, TELE, WORKING);
 
-    HandleOrderStage(id, TELE, 1, GetRandomNumber(T_paymentlow, T_paymenthigh), &pizzas);
+    sleep(GetRandomNumber(T_paymentlow, T_paymenthigh));
 
-    HandleOrderStage(id, COOK, 1, T_prep * pizzas, &pizzas);
+    if(GetRandomNumber(1, 100) <= P_fail)
+    {
+        UnLockResource(id, TELE, 1);
+        print("[THREAD %i] Has Failed payment!\n", id);
 
-    HandleOrderStage(id, OVEN, pizzas, T_bake + T_pack * pizzas, NULL);
+        pthread_mutex_lock(&failed_mutex);
+        failed++;
+        pthread_mutex_unlock(&failed_mutex);
 
-    HandleOrderStage(id, DELIVERY, 1, GetRandomNumber(T_dellow, T_delhigh), NULL);
+        is_Failed[id - 1] = 0.0;
+
+        pthread_exit(NULL);
+    }
+
+    print("[THREAD %i] Has paid and is ok!\n", id);
+
+    pthread_mutex_lock(&rev_mutex);
+    int p = *(int*)data;
+    rev += C_pizza * p;
+    pthread_mutex_unlock(&rev_mutex);
+
+    UnLockResource(id, TELE, 1);
+
+    LockResource(id, COOK, 1);
+
+    PrintMsg(id, COOK, WORKING);
+    sleep(T_prep * pizzas);
+
+    LockResource(id, OVEN, pizzas);
+    UnLockResource(id, COOK, 1);
+
+    PrintMsg(id, OVEN, WORKING);
+    sleep(T_bake);
+    timespec start_cool = Now();
+
+    pthread_mutex_lock(&Pack_person);
+    sleep(T_pack);
+    pthread_mutex_unlock(&Pack_person);
+    
+    print("[THREAD %i] Packing is over in %.2f minits\n",id, TimePassedSince(start));
+
+    UnLockResource(id, OVEN, pizzas);
+
+    LockResource(id, DELIVERY, 1);
+
+    PrintMsg(id, DELIVERY, WORKING);
+    int time = GetRandomNumber(T_dellow, T_delhigh);
+    sleep(time);
+    cool_wait[id - 1] = TimePassedSince(start_cool);
+    Order_wait[id - 1] = TimePassedSince(start);
+    print("[THREAD %i] Order is Delivered in %.2f minits\n",id, Order_wait[id - 1]);
+    sleep(time);
+
+    UnLockResource(id, DELIVERY, 1);
+ 
+    //print("[THREAD %i]TIME: %lf\n", id, TimePassedSince(start));
 
     pthread_exit(NULL);
 }
 
-int HandleOrderStage(int id, int resource_used_index, int amount, int workTime, const void* data)
+void LockResource(int id, int resource_used_index, int amount)
 {
-    struct timespec startTime, endTime;
-    double time;
-
-    char* start;
-    char* waiting;
-    char* woriking;
-    char* end;
-
-    switch (resource_used_index)
-    {
-    case TELE:
-        start    = "[THREAD %i] Going to the telephone stage \n";
-        waiting  = "[THREAD %i] Waiting for telephone \n";
-        woriking = "[THEAD %i]  has %i telephone on call, <%i> telephone left \n";
-        end      = "[THREAD %i] End of telephone stage in %lf sec \n";
-        break;
-    case COOK:
-        start    = "[THREAD %i] Going to the COOK stage \n";
-        waiting  = "[THREAD %i] Waiting for cook \n";
-        woriking = "[THEAD %i] %i pizzas being made, <%i> cooks left \n";
-        end      = "[THREAD %i] End of COOK stage in %lf sec \n";
-        break; 
-    case OVEN:
-        start    = "[THREAD %i] Going to the OVEN stage \n";
-        waiting  = "[THREAD %i] Waiting for OVEN \n";
-        woriking = "[THEAD %i] %i pizzas are in the oven, <%i> ovens left \n";
-        end      = "[THREAD %i] End of OVEN stage in %lf sec \n";
-        break;
-    case DELIVERY:
-        start    = "[THREAD %i] Going to the DELIVERY stage \n";
-        waiting  = "[THREAD %i] Waiting for DELIVERY \n";
-        woriking = "[THEAD %i] %i pizzas are being deliver, <%i> delivery left \n";
-        end      = "[THREAD %i] End of DELIVERY stage in %lf sec \n";
-        break;  
-    default:
-        print("[ERROR]resource_used_index = %i", resource_used_index);
-        exit( EXIT_FAILURE );
-        break;
-    }
-
-    if( clock_gettime( CLOCK_REALTIME, &startTime) == -1 ) {
-      print( "clock gettime" );
-      exit( EXIT_FAILURE );
-    }
-    // start
-
-    print(start, id);
     pthread_mutex_lock(&Resources[resource_used_index].muxtex);
 
     while(Resources[resource_used_index].size < amount)
     {
-        print(waiting, id);
+        PrintMsg(id, resource_used_index, WAITING);
         pthread_cond_wait(&Resources[resource_used_index].cond, &Resources[resource_used_index].muxtex);
     }
     Resources[resource_used_index].size -= amount;
 
     pthread_mutex_unlock(&Resources[resource_used_index].muxtex);
+}
 
-    print(woriking, id, amount, Resources[resource_used_index].size);
-    sleep(workTime);
-
-    if(resource_used_index == TELE)
-    {
-        if(GetRandomNumber(1, 100) <= P_fail)
-        {
-            print("[THREAD %i] Has Failed payment!\n", id);
-        }
-        else
-        {
-            pthread_mutex_lock(&rev_mutex);
-            int p = *(int*)data;
-            rev += C_pizza * p;
-            pthread_mutex_unlock(&rev_mutex);
-        }
-    }
-    else if(resource_used_index == COOK)
-    {
-        
-    }
-
+void UnLockResource(int id, int resource_used_index, int amount)
+{
     pthread_mutex_lock(&Resources[resource_used_index].muxtex);
 
     Resources[resource_used_index].size += amount;
+    PrintMsg(id, resource_used_index, END);
     pthread_cond_signal(&Resources[resource_used_index].cond);
 
     pthread_mutex_unlock(&Resources[resource_used_index].muxtex);
-
-    // end
-    if( clock_gettime( CLOCK_REALTIME, &endTime) == -1 ) {
-      print( "clock gettime" );
-      exit( EXIT_FAILURE );
-    }
-
-    time = ( endTime.tv_sec - startTime.tv_sec )
-          + ( endTime.tv_nsec - startTime.tv_nsec )
-            / BILLION;
-    
-    print(end, id, time);
-
-    return time;
 }
 
 int GetRandomNumber(int min, int max)
@@ -259,3 +289,134 @@ void DestroyResources(ResourceInfo* r)
     free(r);
 }
 
+void PrintMsg(int id, int resource_used_index, State state)
+{
+    if(debug == 0) return;
+
+    char* start;
+    char* waiting;
+    char* woriking;
+    char* end;
+
+    switch (resource_used_index)
+    {
+    case TELE:
+        start    = "[THREAD %i] Going to the telephone stage \n";
+        waiting  = "[THREAD %i] Waiting for telephone \n";
+        woriking = "[THEAD %i]  has %i telephone on call, <%i> telephone left \n";
+        end      = "[THREAD %i] End of telephone stage, <%i> telephone left \n";
+        break;
+    case COOK:
+        start    = "[THREAD %i] Going to the COOK stage \n";
+        waiting  = "[THREAD %i] Waiting for cook \n";
+        woriking = "[THEAD %i] %i pizzas being made, <%i> cooks left \n";
+        end      = "[THREAD %i] End of COOK stage, <%i> cooks left\n";
+        break; 
+    case OVEN:
+        start    = "[THREAD %i] Going to the OVEN stage \n";
+        waiting  = "[THREAD %i] Waiting for OVEN \n";
+        woriking = "[THEAD %i] %i pizzas are in the oven, <%i> ovens left \n";
+        end      = "[THREAD %i] End of OVEN stage in %lf sec, <%i> ovens left \n";
+        break;
+    case DELIVERY:
+        start    = "[THREAD %i] Going to the DELIVERY stage \n";
+        waiting  = "[THREAD %i] Waiting for DELIVERY \n";
+        woriking = "[THEAD %i] %i pizzas are being deliver, <%i> delivery left \n";
+        end      = "[THREAD %i] End of DELIVERY stage, <%i> delivery left\n";
+        break;  
+    default:
+        print("[ERROR]resource_used_index = %i , in thread %i\n", resource_used_index, id);
+        exit( EXIT_FAILURE );
+        break;
+    }
+
+    switch(state)
+    {
+    case START:
+        print(start, id);
+        break;
+    case WAITING:
+        print(waiting, id);
+        break;
+    case WORKING:
+        print(woriking, id, Resources[resource_used_index].size);
+        break;
+    case END:
+        print(end, id, Resources[resource_used_index].size);
+    }
+
+}
+
+timespec Now()
+{
+    timespec now;
+
+    if( clock_gettime( CLOCK_REALTIME, &now) == -1 ) {
+      print( "clock gettime" );
+      exit( EXIT_FAILURE );
+    }
+
+    return now;
+}
+double TimePassedSince(timespec startTime)
+{
+    timespec endTime = Now();
+
+    double time = ( endTime.tv_sec - startTime.tv_sec );
+
+    return time / 60.0;
+}
+
+double Max(double* arr, int len, double* is_ok)
+{
+    double max = arr[0];
+    for(int i = 1; i < len; i++)
+    {
+        if(is_ok != NULL)
+        {
+            if(is_ok[i] == 0.0) continue;
+        }
+
+        if(max < arr[i])
+        {
+            max = arr[i];
+        }
+    }
+    return max;
+}
+
+double Avg(double* arr, int len, double* is_ok)
+{
+    double sum = 0.0;
+    for(int i = 0; i < len; i++)
+    {
+        if(is_ok != NULL)
+        {
+            if(is_ok[i] == 0.0) continue;
+        }
+
+        sum += arr[i];
+    }
+
+    return sum / (len - failed);
+}
+
+double* CreateArray(int len, double value)
+{
+    double* arr = (double*)malloc(len * sizeof(double));
+    if(arr == NULL)
+    {
+        printf("Maloc Failed!!!!\n");
+        exit(EXIT_FAILURE);
+    }
+    for(int i = 0; i < len; i++)
+    {
+        arr[i] = value;
+    }
+    return arr;
+}
+
+void DestroyArray(double* arr)
+{
+    free(arr);
+}
