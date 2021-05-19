@@ -1,44 +1,5 @@
 #include "3190090-3190008-pizza.h"
 
-#define TELE 0
-#define COOK 1
-#define OVEN 2
-#define DELIVERY 3
-
-#define print(arg...) pthread_mutex_lock(&screen); printf(arg); pthread_mutex_unlock(&screen);
-
-typedef struct timespec timespec;
-
-typedef enum State
-{
-    START,
-    WAITING,
-    WORKING,
-    END
-} State;
-
-int GetRandomNumber(int min, int max);
-
-ResourceInfo* SetUpResources();
-void DestroyResources(ResourceInfo* r);
-
-void* TakeOrder(void* data);
-
-void LockResource(int id, int resource_used_index, int amount);
-void UnLockResource(int id, int resource_used_index, int amount);
-
-void PrintMsg(int id, int resource_used_index, State state);
-
-timespec Now();
-double TimePassedSince(timespec past);
-
-double Max(double* arr, int len, double* is_ok);
-double Avg(double* arr, int len, double* is_ok);
-
-double* CreateArray(int len, double value);
-void DestroyArray(double* arr);
-
-
 // if debug = 0 printmsg does not print debug info 
 static char debug = 0; 
 
@@ -48,6 +9,9 @@ static unsigned int SEED;
 static ResourceInfo* Resources; // the Resource array
 
 static pthread_mutex_t screen;
+
+#define print(arg...) pthread_mutex_lock(&screen); printf(arg); pthread_mutex_unlock(&screen);
+
 static pthread_mutex_t Pack_person;
 
 static unsigned int rev = 0;
@@ -124,9 +88,9 @@ int main(int argc, char** argv)
     printf("Total Revenue: %i \n", rev);
     printf("Succesfull Orders: %i\n", N_cust - failed);
     printf("Failed Orders: %i\n", failed);
-    printf("TELE WAIT: MAX = %lf | AVG = %lf", Max(Tele_wait, N_cust, NULL), Avg(Tele_wait, N_cust, NULL));
-    printf("Order WAIT: MAX = %lf | AVG = %lf", Max(Order_wait, N_cust, is_Failed), Avg(Tele_wait, N_cust, is_Failed));
-    printf("Cool WAIT: MAX = %lf | AVG = %lf", Max(cool_wait, N_cust, is_Failed), Avg(cool_wait, N_cust, is_Failed));
+    printf("TELE WAIT: MAX = %lf | AVG = %lf \n", Max(Tele_wait, N_cust, NULL), Avg(Tele_wait, N_cust, NULL));
+    printf("Order WAIT: MAX = %lf | AVG = %lf \n", Max(Order_wait, N_cust, is_Failed), Avg(Order_wait, N_cust, is_Failed));
+    printf("Cool WAIT: MAX = %lf | AVG = %lf \n", Max(cool_wait, N_cust, is_Failed), Avg(cool_wait, N_cust, is_Failed));
 
 
     DestroyResources(Resources);
@@ -174,8 +138,7 @@ void* TakeOrder(void* data)
     print("[THREAD %i] Has paid and is ok!\n", id);
 
     pthread_mutex_lock(&rev_mutex);
-    int p = *(int*)data;
-    rev += C_pizza * p;
+    rev += C_pizza * pizzas;
     pthread_mutex_unlock(&rev_mutex);
 
     UnLockResource(id, TELE, 1);
@@ -193,7 +156,7 @@ void* TakeOrder(void* data)
     timespec start_cool = Now();
 
     pthread_mutex_lock(&Pack_person);
-    sleep(T_pack);
+    sleep(T_pack * pizzas);
     pthread_mutex_unlock(&Pack_person);
     
     print("[THREAD %i] Packing is over in %.2f minits\n",id, TimePassedSince(start));
@@ -247,7 +210,6 @@ int GetRandomNumber(int min, int max)
     return min + rand_r(&SEED) % ( (max+1) - min );
 }
 
-// NOTE: Check for error 
 ResourceInfo* SetUpResources()
 {   
     ResourceInfo* arr = (ResourceInfo*) malloc(4 * sizeof(ResourceInfo));
@@ -272,19 +234,32 @@ ResourceInfo* SetUpResources()
     pthread_mutex_init(&arr[DELIVERY].muxtex, NULL);
     pthread_cond_init(&arr[DELIVERY].cond, NULL);
 
+    pthread_mutex_init(&screen, NULL);
+    pthread_mutex_init(&Pack_person, NULL);
+    pthread_mutex_init(&rev_mutex, NULL);
+    pthread_mutex_init(&failed_mutex, NULL);
+
     return arr;
 }
-// NOTE: Check for error 
+
 void DestroyResources(ResourceInfo* r)
 {
     pthread_mutex_destroy(&r[TELE].muxtex);
     pthread_cond_destroy(&r[TELE].cond);
 
+    pthread_mutex_destroy(&r[COOK].muxtex);
+    pthread_cond_destroy(&r[COOK].cond);
+
     pthread_mutex_destroy(&r[OVEN].muxtex);
     pthread_cond_destroy(&r[OVEN].cond);
 
+    pthread_mutex_destroy(&screen);
+    pthread_mutex_destroy(&Pack_person);
+
     pthread_mutex_destroy(&r[DELIVERY].muxtex);
     pthread_cond_destroy(&r[DELIVERY].cond);
+    pthread_mutex_destroy(&rev_mutex);
+    pthread_mutex_destroy(&failed_mutex);
 
     free(r);
 }

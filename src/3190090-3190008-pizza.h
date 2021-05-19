@@ -4,8 +4,6 @@
 #include <unistd.h>
 #include <time.h>
 
-#define ThreadID pthread_t
-
 #define N_tel 3
 #define N_cook 2
 #define N_oven 10
@@ -31,7 +29,7 @@
 #define T_dellow 5
 #define T_delhigh 15
 
-#define BILLION  1000000000L;
+#define ThreadID pthread_t
 
 typedef struct ResourceInfo
 {
@@ -41,4 +39,40 @@ typedef struct ResourceInfo
     pthread_mutex_t muxtex;
     pthread_cond_t cond;
 } ResourceInfo;
+
+#define TELE 0
+#define COOK 1
+#define OVEN 2
+#define DELIVERY 3
+
+typedef struct timespec timespec;
+
+typedef enum State
+{
+    START,
+    WAITING,
+    WORKING,
+    END
+} State;
+
+int GetRandomNumber(int min, int max);
+
+ResourceInfo* SetUpResources();
+void DestroyResources(ResourceInfo* r);
+
+void* TakeOrder(void* data);
+
+void LockResource(int id, int resource_used_index, int amount);
+void UnLockResource(int id, int resource_used_index, int amount);
+
+void PrintMsg(int id, int resource_used_index, State state);
+
+timespec Now();
+double TimePassedSince(timespec past);
+
+double Max(double* arr, int len, double* is_ok);
+double Avg(double* arr, int len, double* is_ok);
+
+double* CreateArray(int len, double value);
+void DestroyArray(double* arr);
 
