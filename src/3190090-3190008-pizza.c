@@ -9,21 +9,20 @@ static unsigned int SEED;
 static ResourceInfo* Resources; // the Resource array
 
 static pthread_mutex_t screen;
-
 #define print(arg...) pthread_mutex_lock(&screen); printf(arg); pthread_mutex_unlock(&screen);
 
-static pthread_mutex_t Pack_person;
+static pthread_mutex_t Pack_person; // for the person that does the packing
 
-static unsigned int rev = 0;
+static unsigned int rev = 0; // revenue
 static pthread_mutex_t rev_mutex;
 
-static unsigned int failed = 0;
+static unsigned int failed = 0; // how manu order have failed
 static pthread_mutex_t failed_mutex;
 
-static double* Tele_wait;
-static double* Order_wait;
-static double* cool_wait;
-static double* is_Failed;
+static double* Tele_wait; // Tele_wait[i - 1] => how mach time the order i has waited for the Telephone
+static double* Order_wait; // Order_wait[i - 1] => how mach time has been taken for the order to been delivered.
+static double* cool_wait; // cool_wait[i - 1] => how mach time has the pizza been cooling for order i?
+static double* is_Failed; // is_Failed[i - 1] == 0.0 the order i has failed.
 
 int main(int argc, char** argv)
 {
@@ -49,7 +48,6 @@ int main(int argc, char** argv)
     }
 
     Resources = SetUpResources();
-    pthread_mutex_init(&rev_mutex, NULL);
 
     int* ids = (int*)malloc(N_cust * sizeof(int));
     ThreadID* arr = (ThreadID*)malloc(N_cust * sizeof(ThreadID));
@@ -85,12 +83,12 @@ int main(int argc, char** argv)
     }
 
     printf("\n========================================\n");
-    printf("Total Revenue: %i \n", rev);
+    printf("Total Revenue:     %i \n", rev);
     printf("Succesfull Orders: %i\n", N_cust - failed);
-    printf("Failed Orders: %i\n", failed);
-    printf("TELE WAIT: MAX = %lf | AVG = %lf \n", Max(Tele_wait, N_cust, NULL), Avg(Tele_wait, N_cust, NULL));
-    printf("Order WAIT: MAX = %lf | AVG = %lf \n", Max(Order_wait, N_cust, is_Failed), Avg(Order_wait, N_cust, is_Failed));
-    printf("Cool WAIT: MAX = %lf | AVG = %lf \n", Max(cool_wait, N_cust, is_Failed), Avg(cool_wait, N_cust, is_Failed));
+    printf("Failed Orders:     %i\n", failed);
+    printf("TELE WAIT:   MAX = %lf | AVG = %lf \n", Max(Tele_wait, N_cust, NULL), Avg(Tele_wait, N_cust, NULL));
+    printf("Order WAIT:  MAX = %lf | AVG = %lf \n", Max(Order_wait, N_cust, is_Failed), Avg(Order_wait, N_cust, is_Failed));
+    printf("Cool WAIT:   MAX = %lf | AVG = %lf \n", Max(cool_wait, N_cust, is_Failed), Avg(cool_wait, N_cust, is_Failed));
 
 
     DestroyResources(Resources);
@@ -112,7 +110,8 @@ void* TakeOrder(void* data)
     int id = *( (int*)data );
 
     timespec start = Now();
- 
+
+//////////////TELE//////////////////////////
     LockResource(id, TELE, 1);
 
     Tele_wait[id - 1] = TimePassedSince(start);
@@ -142,7 +141,8 @@ void* TakeOrder(void* data)
     pthread_mutex_unlock(&rev_mutex);
 
     UnLockResource(id, TELE, 1);
-
+//////////////TELE//////////////////////////
+//////////////COOK//////////////////////////
     LockResource(id, COOK, 1);
 
     PrintMsg(id, COOK, WORKING);
@@ -150,6 +150,8 @@ void* TakeOrder(void* data)
 
     LockResource(id, OVEN, pizzas);
     UnLockResource(id, COOK, 1);
+//////////////COOK//////////////////////////
+//////////////OVEN//////////////////////////
 
     PrintMsg(id, OVEN, WORKING);
     sleep(T_bake);
@@ -162,7 +164,8 @@ void* TakeOrder(void* data)
     print("[THREAD %i] Packing is over in %.2f minits\n",id, TimePassedSince(start));
 
     UnLockResource(id, OVEN, pizzas);
-
+//////////////OVEN////////////////////////// 
+//////////////DELIVERY//////////////////////////
     LockResource(id, DELIVERY, 1);
 
     PrintMsg(id, DELIVERY, WORKING);
@@ -174,7 +177,8 @@ void* TakeOrder(void* data)
     sleep(time);
 
     UnLockResource(id, DELIVERY, 1);
- 
+//////////////DELIVERY//////////////////////////
+
     //print("[THREAD %i]TIME: %lf\n", id, TimePassedSince(start));
 
     pthread_exit(NULL);
@@ -258,6 +262,9 @@ void DestroyResources(ResourceInfo* r)
 
     pthread_mutex_destroy(&r[DELIVERY].muxtex);
     pthread_cond_destroy(&r[DELIVERY].cond);
+
+    pthread_mutex_destroy(&screen);
+    pthread_mutex_destroy(&Pack_person);
     pthread_mutex_destroy(&rev_mutex);
     pthread_mutex_destroy(&failed_mutex);
 

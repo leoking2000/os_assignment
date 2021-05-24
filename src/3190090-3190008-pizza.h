@@ -10,7 +10,7 @@
 #define N_deliverer 7
 
 #define T_OrderLow 1
-#define T_OrderHigh 1
+#define T_OrderHigh 5
 
 #define N_oderlow 1
 #define N_orderhigh 5
@@ -47,6 +47,7 @@ typedef struct ResourceInfo
 
 typedef struct timespec timespec;
 
+// this is used for the debug msg system
 typedef enum State
 {
     START,
@@ -60,15 +61,15 @@ int GetRandomNumber(int min, int max);
 ResourceInfo* SetUpResources();
 void DestroyResources(ResourceInfo* r);
 
-void* TakeOrder(void* data);
-
 void LockResource(int id, int resource_used_index, int amount);
 void UnLockResource(int id, int resource_used_index, int amount);
+
+void* TakeOrder(void* data);
 
 void PrintMsg(int id, int resource_used_index, State state);
 
 timespec Now();
-double TimePassedSince(timespec past);
+double TimePassedSince(timespec past); // return now() - past
 
 double Max(double* arr, int len, double* is_ok);
 double Avg(double* arr, int len, double* is_ok);
